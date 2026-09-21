@@ -2,14 +2,14 @@
  * Integration tests for the full subagent lifecycle.
  *
  * These tests spawn REAL pi sessions with REAL LLM calls (haiku by default).
- * Each test creates a tmux pane, runs pi with a task that uses the subagent
- * tool, and verifies the outcome via marker files and screen output.
+ * Each test creates a Herdr pane, runs pi with a task that uses the subagent
+ * tool, and verifies the outcome via marker files and pane output.
  *
  * Costs: ~$0.01-0.05 per test run (haiku).
  * Duration: ~30-90s per test.
  *
- * Run inside tmux:
- *   tmux new 'npm run test:integration'
+ * Run inside Herdr:
+ *   herdr   (then run `npm run test:integration` from a pane)
  *
  * Configuration:
  *   PI_TEST_MODEL     — model for all pi sessions (default: anthropic/claude-haiku-4-5)
@@ -37,8 +37,8 @@ import {
 const backends = getAvailableBackends();
 
 if (backends.length === 0) {
-  console.log("⚠️  tmux is not available — skipping subagent lifecycle integration tests");
-  console.log("   Run inside tmux to enable these tests.");
+  console.log("⚠️  Herdr is not available — skipping subagent lifecycle integration tests");
+  console.log("   Run inside Herdr to enable these tests.");
 }
 
 for (const backend of backends) {
@@ -198,12 +198,14 @@ for (const backend of backends) {
       const surface = createTrackedSurface(env, `fork-${id}`);
       await sleep(1000);
 
+      // Fork mode is selected via agent frontmatter (`session-mode: fork`);
+      // the subagent tool itself always requires an `agent` parameter.
       const task = [
         `Call the subagent tool with these EXACT parameters:`,
         `  name: "Fork-${id}"`,
-        `  fork: true`,
+        `  agent: "test-fork"`,
         `  task: "Run this bash command: echo 'FORK_OK_${id}' > '${markerFile}'"`,
-        `Do not set the agent parameter. Just set name, fork, and task.`,
+        `Do not do anything else. Just call the subagent tool once.`,
         `After you receive the result, say FORK_COMPLETE.`,
       ].join("\n");
 

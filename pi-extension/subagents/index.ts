@@ -1,7 +1,7 @@
-import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
+import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { keyHint } from "@mariozechner/pi-coding-agent";
 import { Type, type Static } from "@sinclair/typebox";
-import { Box, Text, truncateToWidth, visibleWidth } from "@mariozechner/pi-tui";
+import { Box, Text, truncateToWidth, visibleWidth, type AutocompleteItem } from "@mariozechner/pi-tui";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -24,7 +24,7 @@ import {
   closeSurface,
   shellEscape,
   readScreen,
-} from "./tmux.ts";
+} from "./herdr.ts";
 
 import {
   countSessionEntryLines,
@@ -508,10 +508,10 @@ function muxUnavailableResult() {
     content: [
       {
         type: "text" as const,
-        text: `Subagents require tmux. ${muxSetupHint()}`,
+        text: `Subagents require Herdr. ${muxSetupHint()}`,
       },
     ],
-    details: { error: "tmux not available" },
+    details: { error: "herdr not available" },
   };
 }
 
@@ -1008,7 +1008,7 @@ function steerSubagent(
   } catch (error: any) {
     return {
       error:
-        `Failed to deliver message to subagent "${running.name}" via tmux: ` +
+        `Failed to deliver message to subagent "${running.name}" via Herdr: ` +
         `${error?.message ?? String(error)}`,
     };
   }
@@ -1134,6 +1134,8 @@ export const __test__ = {
   formatWidgetRightLabel,
   observeRunningSubagent,
   getToolExtensionPath,
+  registerToolExtension,
+  getSubagentArgumentCompletions,
   resolveRunningByName,
   uniqueRunningName,
   reservedNames,
@@ -1638,6 +1640,119 @@ async function watchSubagent(
       error: err?.message ?? String(err),
     };
   }
+}
+
+/** Agent-name completion items for the /subagent command, filtered by prefix. */
+function agentCompletionItems(prefix: string, valuePrefix = ""): AutocompleteItem[] {
+  const lower = prefix.toLowerCase();
+  return discoverAgentDefinitions()
+    .filter((a) => a.name.toLowerCase().startsWith(lower))
+    .map((a) => ({
+      value: valuePrefix + a.name,
+      label: a.name,
+      description:
+        `${a.source !== "package" ? `[${a.source}] ` : ""}` +
+        `${a.disableModelInvocation ? "[hidden] " : ""}` +
+        (a.description ?? ""),
+    }));
+}
+
+/**
+ * Argument completions for /subagent. First token completes to the `list` /
+ * `info` subcommands plus every agent name; after `info` the second token
+ * completes agent names; past the agent name the task is free text (return
+ * null so pi's default file completion takes over).
+ *
+ * pi replaces the whole argument text with the chosen item's `value`, so
+ * second-token completions carry their "info " prefix.
+ */
+function getSubagentArgumentCompletions(argumentPrefix: string): AutocompleteItem[] | null {
+  const trailingSpace = /\s$/.test(argumentPrefix);
+  const tokens = argumentPrefix.trimStart().split(/\s+/).filter(Boolean);
+  const first = tokens[0] ?? "";
+  const completingFirst = tokens.length === 0 || (tokens.length === 1 && !trailingSpace);
+
+  if (completingFirst) {
+    const subcommands = [
+      { value: "list", label: "list", description: "List all available subagent definitions" },
+      { value: "info", label: "info", description: "Show frontmatter details for an agent" },
+    ].filter((c) => c.value.startsWith(first));
+    const items = [...subcommands, ...agentCompletionItems(first)];
+    return items.length > 0 ? items : null;
+  }
+
+  if (first === "info" && (tokens.length === 1 || (tokens.length === 2 && !trailingSpace))) {
+    return agentCompletionItems(trailingSpace ? "" : (tokens[1] ?? ""), "info ");
+  }
+
+  return null;
+}
+
+/** `/subagent list` — print the full roster into the chat as a boxed message. */
+function handleSubagentListCommand(pi: ExtensionAPI): void {
+  const agents = discoverAgentDefinitions();
+  const lines = agents.map((a) => {
+    const badge = a.source !== "package" ? ` [${a.source}]` : "";
+    const hidden = a.disableModelInvocation ? " (hidden)" : "";
+    const model = a.model ? ` [${a.model}]` : "";
+    const desc = a.description ? ` — ${a.description}` : "";
+    return `• ${a.name}${badge}${hidden}${model}${desc}`;
+  });
+  pi.sendMessage({
+    customType: "subagent_list",
+    content:
+      agents.length > 0
+        ? `${agents.length} available subagent${agents.length === 1 ? "" : "s"}:\n` + lines.join("\n")
+        : "No subagent definitions found.",
+    display: true,
+    details: { agents },
+  });
+}
+
+/** `/subagent info <agent>` — print one agent's resolved frontmatter into the chat. */
+function handleSubagentInfoCommand(
+  pi: ExtensionAPI,
+  ctx: ExtensionCommandContext,
+  name: string,
+): void {
+  const agentName = name.trim();
+  if (!agentName) {
+    ctx.ui.notify("Usage: /subagent info <agent>", "warning");
+    return;
+  }
+  const agents = discoverAgentDefinitions();
+  const agent = agents.find((a) => a.name === agentName);
+  if (!agent) {
+    const known = agents.map((a) => a.name).join(", ") || "(none)";
+    ctx.ui.notify(`Agent "${agentName}" not found. Available: ${known}`, "error");
+    return;
+  }
+
+  const fields: Array<[string, string | undefined]> = [
+    ["description", agent.description],
+    ["model", agent.model],
+    ["thinking", agent.thinking],
+    ["tools", agent.tools],
+    ["skills", agent.skills],
+    ["session-mode", agent.sessionMode],
+    ["system-prompt", agent.systemPromptMode],
+    ["auto-exit", agent.autoExit === undefined ? undefined : String(agent.autoExit)],
+    ["interactive", agent.interactive === undefined ? undefined : String(agent.interactive)],
+    ["cwd", agent.cwd],
+    ["cli", agent.cli],
+    ["can spawn", agent.subagentAgents?.join(", ")],
+    ["hidden", agent.disableModelInvocation ? "yes" : undefined],
+  ];
+  const text =
+    `${agent.name} [${agent.source}]\n` +
+    fields.filter(([, v]) => v).map(([k, v]) => `${k}: ${v}`).join("\n");
+
+  pi.sendMessage({
+    customType: "subagent_info",
+    content: text,
+    display: true,
+    details: { agent },
+  });
 }
 
 export default function subagentsExtension(pi: ExtensionAPI) {
@@ -2319,13 +2434,21 @@ export default function subagentsExtension(pi: ExtensionAPI) {
       },
     });
 
-  // /subagent command — spawn a subagent by name
+  // /subagent command — spawn a subagent by name, or inspect the roster
+  // (`/subagent list`, `/subagent info <agent>`). Tab-completion offers
+  // subcommands and agent names as the first argument.
   pi.registerCommand("subagent", {
-    description: "Spawn a subagent: /subagent <agent> <task>",
+    description:
+      "Spawn a subagent: /subagent <agent> <task> — or inspect the roster: /subagent list, /subagent info <agent>",
+
+    // pi replaces the whole argument text with the chosen item's `value`, so
+    // completions for the second token (`info <agent>`) carry their prefix.
+    getArgumentCompletions: getSubagentArgumentCompletions,
+
     handler: async (args, ctx) => {
       const trimmed = args.trim();
       if (!trimmed) {
-        ctx.ui.notify("Usage: /subagent <agent> [task]", "warning");
+        ctx.ui.notify("Usage: /subagent list · /subagent info <agent> · /subagent <agent> [task]", "warning");
         return;
       }
 
@@ -2333,10 +2456,19 @@ export default function subagentsExtension(pi: ExtensionAPI) {
       const agentName = spaceIdx === -1 ? trimmed : trimmed.slice(0, spaceIdx);
       const task = spaceIdx === -1 ? "" : trimmed.slice(spaceIdx + 1).trim();
 
+      if (agentName === "list") {
+        handleSubagentListCommand(pi);
+        return;
+      }
+      if (agentName === "info") {
+        handleSubagentInfoCommand(pi, ctx, task);
+        return;
+      }
+
       const defs = loadAgentDefaults(agentName);
       if (!defs) {
         ctx.ui.notify(
-          `Agent "${agentName}" not found in ~/.pi/agent/agents/ or .pi/agents/`,
+          `Agent "${agentName}" not found in ~/.pi/agent/agents/ or .pi/agents/ (try /subagent list)`,
           "error",
         );
         return;
@@ -2519,6 +2651,110 @@ export default function subagentsExtension(pi: ExtensionAPI) {
         }
 
         const box = new Box(1, 1, bgFn);
+        box.addChild(new Text(contentLines.join("\n"), 0, 0));
+        return ["", ...box.render(width)];
+      },
+    };
+  });
+  // ── subagent_list message renderer (/subagent list) ──
+  pi.registerMessageRenderer("subagent_list", (message, options, theme) => {
+    const details = message.details as any;
+    const agents = Array.isArray(details?.agents) ? details.agents : [];
+
+    return {
+      render(width: number): string[] {
+        const lineWidth = Math.max(0, width - 6);
+        const contentLines = [
+          `${theme.fg("accent", "•")} ${theme.fg("toolTitle", theme.bold("Subagents"))} ${theme.fg("dim", `— ${agents.length} available`)}`,
+        ];
+
+        if (agents.length === 0) {
+          contentLines.push(theme.fg("dim", "No subagent definitions found."));
+        }
+
+        for (const a of agents) {
+          const badge =
+            a.source === "project"
+              ? theme.fg("accent", " (project)")
+              : a.source === "global"
+                ? theme.fg("dim", " (global)")
+                : "";
+          const hidden = a.disableModelInvocation ? theme.fg("dim", " (hidden)") : "";
+          const model = a.model ? theme.fg("dim", ` [${a.model}]`) : "";
+          const nameCell = `  ${theme.fg("toolTitle", theme.bold(a.name))}${badge}${hidden}${model}`;
+          // Truncate the description so the row never wraps mid-ANSI.
+          const descBudget = lineWidth - visibleWidth(nameCell) - 3;
+          const desc =
+            a.description && descBudget > 8
+              ? theme.fg("dim", ` — ${truncateToWidth(a.description, descBudget)}`)
+              : "";
+          contentLines.push(`${nameCell}${desc}`);
+        }
+
+        const box = new Box(1, 1, (text: string) => theme.bg("customMessageBg", text));
+        box.addChild(new Text(contentLines.join("\n"), 0, 0));
+        return ["", ...box.render(width)];
+      },
+    };
+  });
+
+  // ── subagent_info message renderer (/subagent info <agent>) ──
+  pi.registerMessageRenderer("subagent_info", (message, options, theme) => {
+    const details = message.details as any;
+    const agent = details?.agent;
+    if (!agent) return undefined;
+
+    return {
+      render(width: number): string[] {
+        const lineWidth = Math.max(0, width - 6);
+        const badge =
+          agent.source === "project"
+            ? theme.fg("accent", " (project)")
+            : agent.source === "global"
+              ? theme.fg("dim", " (global)")
+              : "";
+        const hidden = agent.disableModelInvocation ? theme.fg("dim", " (hidden)") : "";
+
+        const contentLines = [
+          `${theme.fg("accent", "•")} ${theme.fg("toolTitle", theme.bold(agent.name))}${badge}${hidden}`,
+        ];
+        if (agent.description) {
+          contentLines.push(theme.fg("dim", `  ${truncateToWidth(agent.description, lineWidth - 2)}`));
+        }
+        contentLines.push("");
+
+        const fields: Array<[string, string | undefined]> = [
+          ["model", agent.model],
+          ["thinking", agent.thinking],
+          ["tools", agent.tools],
+          ["skills", agent.skills],
+          ["session-mode", agent.sessionMode],
+          ["system-prompt", agent.systemPromptMode],
+          ["auto-exit", agent.autoExit === undefined ? undefined : String(agent.autoExit)],
+          ["interactive", agent.interactive === undefined ? undefined : String(agent.interactive)],
+          ["cwd", agent.cwd],
+          ["cli", agent.cli],
+          ["can spawn", agent.subagentAgents?.join(", ")],
+        ];
+        for (const [key, value] of fields) {
+          if (!value) continue;
+          contentLines.push(
+            truncateToWidth(`  ${theme.fg("muted", key.padEnd(14))} ${theme.fg("dim", value)}`, lineWidth),
+          );
+        }
+
+        if (agent.body) {
+          if (options.expanded) {
+            contentLines.push("");
+            for (const line of agent.body.split("\n")) {
+              contentLines.push(theme.fg("dim", truncateToWidth(line, lineWidth)));
+            }
+          } else {
+            contentLines.push(theme.fg("muted", keyHint("app.tools.expand", "to expand")));
+          }
+        }
+
+        const box = new Box(1, 1, (text: string) => theme.bg("customMessageBg", text));
         box.addChild(new Text(contentLines.join("\n"), 0, 0));
         return ["", ...box.render(width)];
       },

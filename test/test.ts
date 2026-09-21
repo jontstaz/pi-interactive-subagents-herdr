@@ -30,7 +30,7 @@ import {
   summarizeSessionStats,
 } from "../pi-extension/subagents/session.ts";
 
-import { shellEscape } from "../pi-extension/subagents/tmux.ts";
+import { shellEscape } from "../pi-extension/subagents/herdr.ts";
 import {
   advanceStatusState,
   capStatusLines,
@@ -56,7 +56,7 @@ import {
   runningChildrenCount,
 } from "../pi-extension/subagents/subagent-done.ts";
 import subagentDoneExtension from "../pi-extension/subagents/subagent-done.ts";
-import { __pollForExitTest__ } from "../pi-extension/subagents/tmux.ts";
+import { __pollForExitTest__ } from "../pi-extension/subagents/herdr.ts";
 
 // --- Helpers ---
 
@@ -1184,10 +1184,17 @@ describe("subagent discovery", () => {
     }
   });
 
-  it("worker is granted the spawning toolset restricted to scout and researcher", () => {
+  it("worker is granted the spawning toolset restricted to its subagent_agents list", () => {
     const worker = testApi.loadAgentDefaults("worker");
     assert.ok(worker, "expected bundled worker to be discoverable");
-    assert.deepEqual(worker.subagentAgents, ["scout", "researcher"]);
+    assert.deepEqual(worker.subagentAgents, [
+      "scout",
+      "researcher",
+      "critic",
+      "planner",
+      "git-butler",
+      "scribe",
+    ]);
 
     const allowlist = testApi.buildSubagentToolAllowlist(worker.tools, { grantSpawning: true });
     assert.ok(allowlist, "expected an allowlist");
@@ -1209,10 +1216,67 @@ describe("subagent discovery", () => {
   it("getToolExtensionPath maps custom tools and skips built-ins", () => {
     assert.equal(testApi.getToolExtensionPath("read"), undefined);
     assert.equal(testApi.getToolExtensionPath("bash"), undefined);
-    assert.ok(testApi.getToolExtensionPath("web_search")?.endsWith("web-search/index.ts"));
+    // Bundled with this extension — always resolvable.
     assert.ok(testApi.getToolExtensionPath("safe_bash")?.endsWith("tools/safe-bash.ts"));
     // Spawning tools are registered by this extension itself.
     assert.ok(testApi.getToolExtensionPath("subagent")?.endsWith("index.ts"));
+    // Global tool extensions resolve to their installed path when present and
+    // otherwise fall back to runtime registration — assert both branches
+    // without depending on what the host machine has installed.
+    const registered = "/registered-at-runtime/web-search/index.ts";
+    testApi.registerToolExtension("web_search", registered);
+    const webSearch = testApi.getToolExtensionPath("web_search");
+    assert.ok(
+      webSearch === registered || webSearch?.endsWith("web-search/index.ts"),
+      `expected web_search to map to the installed extension or the runtime registration, got ${webSearch}`,
+    );
+  });
+
+  it("/subagent argument completions offer subcommands and agent names", async () => {
+    await withIsolatedAgentEnv(async ({ projectAgentsDir }) => {
+      writeAgentFile(
+        projectAgentsDir,
+        "scouty",
+        ["name: scouty", "description: Project-local recon agent"].join("\n"),
+      );
+      const complete = testApi.getSubagentArgumentCompletions;
+
+      // Empty argument → subcommands + every agent (bundled + project).
+      const all = complete("");
+      assert.ok(Array.isArray(all));
+      const values = all.map((i: any) => i.value);
+      assert.ok(values.includes("list"), "list subcommand offered");
+      assert.ok(values.includes("info"), "info subcommand offered");
+      assert.ok(values.includes("worker"), "bundled agents offered");
+      assert.ok(values.includes("scouty"), "project agents offered");
+
+      // Prefix filtering covers subcommands and agent names.
+      const l = complete("l");
+      assert.deepEqual(l.map((i: any) => i.value), ["list"]);
+      const s = complete("sc");
+      assert.ok(s.every((i: any) => i.value.startsWith("sc")), `prefix filter: ${s.map((i: any) => i.value)}`);
+      assert.ok(s.some((i: any) => i.value === "scouty"));
+      // Case-insensitive prefix.
+      assert.ok(complete("SC").some((i: any) => i.value === "scouty"));
+
+      // After `info` the second token completes agent names, value carries the
+      // "info " prefix because pi replaces the whole argument text.
+      const info = complete("info sc");
+      assert.ok(info.some((i: any) => i.value === "info scouty"));
+      assert.ok(!info.some((i: any) => i.value === "info list"));
+      const infoEmpty = complete("info ");
+      assert.ok(infoEmpty.some((i: any) => i.value === "info scouty"));
+
+      // Completions carry descriptions (used by the dropdown).
+      const scouty = complete("scouty").find((i: any) => i.value === "scouty");
+      assert.match(scouty.description, /\[project\]/);
+      assert.match(scouty.description, /Project-local recon agent/);
+
+      // Task text after the agent name is free text → no completions.
+      assert.equal(complete("scouty fix the bug"), null);
+      assert.equal(complete("list "), null);
+      assert.equal(complete("info scouty "), null);
+    });
   });
 
   it("ignores invalid session-mode values", async () => {
@@ -1741,7 +1805,7 @@ describe("subagent-done.ts", () => {
   });
 });
 
-describe("tmux.ts interpretExitSidecar", () => {
+describe("herdr.ts interpretExitSidecar", () => {
   const { interpretExitSidecar } = __pollForExitTest__;
 
   it("no longer decodes ping payloads (ask_question keeps the session open instead)", () => {
@@ -2652,7 +2716,7 @@ describe("subagent display helpers", () => {
   });
 });
 
-describe("tmux.ts", () => {
+describe("herdr.ts", () => {
   describe("shellEscape", () => {
     it("wraps in single quotes", () => {
       assert.equal(shellEscape("hello"), "'hello'");

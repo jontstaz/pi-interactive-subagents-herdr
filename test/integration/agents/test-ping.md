@@ -1,8 +1,9 @@
 ---
 name: test-ping
 description: Integration test agent — calls caller_ping instead of completing task
-model: anthropic/claude-haiku-4-5
+model: omni/openrouter/z-ai/glm-5.3-flash
 tools: read, bash
+thinking: low
 spawning: false
 disable-model-invocation: true
 ---

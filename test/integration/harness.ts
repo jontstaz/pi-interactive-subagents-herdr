@@ -2,10 +2,10 @@
  * Integration test harness for pi-interactive-subagents.
  *
  * Provides utilities to:
- * - Detect whether tmux is available
+ * - Detect whether Herdr is available
  * - Create isolated test environments with test agent definitions
- * - Start real pi sessions in tmux panes
- * - Poll for file creation and screen output
+ * - Start real pi sessions in Herdr panes
+ * - Poll for file creation and pane output
  * - Clean up panes and temp files after tests
  */
 import { execFileSync } from "node:child_process";
@@ -32,9 +32,9 @@ import {
   readScreenAsync,
   closeSurface,
   shellEscape,
-} from "../../pi-extension/subagents/tmux.ts";
+} from "../../pi-extension/subagents/herdr.ts";
 
-// Re-export tmux primitives for tests
+// Re-export multiplexer primitives for tests
 export {
   createSurface,
   createSurfaceSplit,
@@ -73,27 +73,32 @@ export const TEST_MODEL = process.env.PI_TEST_MODEL ?? "anthropic/claude-haiku-4
 /** Per-test timeout in ms. Override with PI_TEST_TIMEOUT env var. */
 export const PI_TIMEOUT = Number(process.env.PI_TEST_TIMEOUT ?? "120000");
 
+/** Thinking level for all pi sessions. Override with PI_TEST_THINKING env var. */
+export const PI_THINKING = process.env.PI_TEST_THINKING ?? "";
+
 // ── Backend detection ──
 
 /**
- * Detect whether tmux is available in the current environment.
- * Returns ["tmux"] or [].
+ * Detect whether Herdr is available in the current environment.
+ * Returns ["herdr"] or [].
  */
 export function getAvailableBackends(): string[] {
-  return isMuxAvailable() ? ["tmux"] : [];
+  return isMuxAvailable() ? ["herdr"] : [];
 }
 
-export function focusSurface(surface: string): void {
-  execFileSync("tmux", ["select-pane", "-t", surface], { encoding: "utf8" });
-}
-
+/**
+ * The pane Herdr currently has focused in the calling tab, or null.
+ * Read from the tab layout's focused_pane_id — the authority on live focus.
+ */
 export function getFocusedSurface(): string | null {
   try {
-    const panes = execFileSync("tmux", ["list-panes", "-F", "#{pane_id} #{pane_active}"], {
-      encoding: "utf8",
-    });
-    const activeLine = panes.split("\n").find((line) => line.endsWith(" 1"));
-    return activeLine?.split(" ")[0] ?? null;
+    const layout = execFileSync(
+      process.env.HERDR_BIN_PATH || "herdr",
+      ["pane", "layout", "--current"],
+      { encoding: "utf8" },
+    );
+    const focused = JSON.parse(layout)?.result?.layout?.focused_pane_id;
+    return typeof focused === "string" ? focused : null;
   } catch {
     return null;
   }
@@ -110,7 +115,7 @@ export async function waitForFocusedSurface(
   }
 
   throw new Error(
-    `Timeout (${timeout}ms) waiting for focused tmux pane ${surface}; ` +
+    `Timeout (${timeout}ms) waiting for focused pane ${surface}; ` +
       `current focus is ${getFocusedSurface() ?? "unknown"}`,
   );
 }
@@ -175,13 +180,18 @@ export function createTrackedSurface(env: TestEnv, name: string): string {
   return surface;
 }
 
+/**
+ * Create a tracked split surface. Pass { focus: true } to move keyboard focus
+ * to the new pane as it is created (Herdr has no focus-by-pane-id command,
+ * so a focused split is how tests place focus deterministically).
+ */
 export function createTrackedSurfaceSplit(
   env: TestEnv,
   name: string,
-  direction: "left" | "right" | "up" | "down",
-  fromSurface?: string,
+  direction: "right" | "down",
+  opts?: { focus?: boolean },
 ): string {
-  const surface = createSurfaceSplit(name, direction, fromSurface);
+  const surface = createSurfaceSplit(name, direction, undefined, opts);
   env.surfaces.push(surface);
   return surface;
 }
@@ -221,6 +231,7 @@ export function startPi(
     `-ne`,
     `-e ${shellEscape(EXTENSION_SOURCE)}`,
     `--model ${shellEscape(model)}`,
+    PI_THINKING ? `--thinking ${shellEscape(PI_THINKING)}` : "",
     extra,
     shellEscape(task),
   ]

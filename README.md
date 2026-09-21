@@ -4,9 +4,9 @@ Async subagents for [pi](https://github.com/badlogic/pi-mono), running in [Herdr
 
 **Herdr-only fork.** See [Acknowledgements](#acknowledgements) for the upstream project, which also supports tmux, cmux, zellij, and WezTerm.
 
-https://github.com/amosblomqvist/pi-interactive-subagents/assets
-
-![Demo of pi-interactive-subagents: spawning subagents in Herdr panes and steering results back into the main session](demo/demo.gif)
+<video src="https://github.com/jontstaz/pi-interactive-subagents/raw/main/demo/demo.mp4" autoplay muted loop playsinline controls>
+  <img src="demo/demo.gif" alt="Demo of pi-interactive-subagents: spawning subagents in Herdr panes and steering results back into the main session">
+</video>
 
 ## How it works
 
@@ -194,7 +194,7 @@ herdr   # then start pi from one of its panes
 
 ## Acknowledgements
 
-Forked from [HazAT/pi-interactive-subagents](https://github.com/HazAT/pi-interactive-subagents), which originated the subagent architecture, the multi-multiplexer surface layer, and the status widget; its supervision features were inspired by [RepoPrompt](https://repoprompt.com/).
+Forked from [amosblomqvist/pi-interactive-subagents](https://github.com/amosblomqvist/pi-interactive-subagents), the tmux fork of [HazAT/pi-interactive-subagents](https://github.com/HazAT/pi-interactive-subagents), which originated the subagent architecture, the multi-multiplexer surface layer, and the status widget; its supervision features were inspired by [RepoPrompt](https://repoprompt.com/).
 
 ## License
 
