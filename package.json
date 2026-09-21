@@ -9,7 +9,7 @@
   "author": "jontstaz",
   "repository": {
     "type": "git",
-    "url": "https://github.com/jontstaz/pi-interactive-subagents-herdr"
+    "url": "git+https://github.com/jontstaz/pi-interactive-subagents-herdr.git"
   },
   "homepage": "https://github.com/jontstaz/pi-interactive-subagents-herdr#readme",
   "bugs": "https://github.com/jontstaz/pi-interactive-subagents-herdr/issues",
