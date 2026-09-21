@@ -4,7 +4,7 @@ Async subagents for [pi](https://github.com/badlogic/pi-mono), running in [Herdr
 
 **Herdr-only fork.** See [Acknowledgements](#acknowledgements) for the upstream project, which also supports tmux, cmux, zellij, and WezTerm.
 
-<video src="https://github.com/jontstaz/pi-interactive-subagents/raw/main/demo/demo.mp4" autoplay muted loop playsinline controls>
+<video src="https://github.com/user-attachments/assets/9582653a-b13d-42d0-810e-7a37b46427b2" autoplay muted loop playsinline controls width="100%">
   <img src="demo/demo.gif" alt="Demo of pi-interactive-subagents: spawning subagents in Herdr panes and steering results back into the main session">
 </video>
 
