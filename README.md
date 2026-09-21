@@ -1,12 +1,16 @@
 # pi-interactive-subagents
 
-Async subagents for [pi](https://github.com/badlogic/pi-mono), running in tmux panes. Spawn a sub-agent, keep working in the main session, and get the result steered back when it finishes. Fully non-blocking.
+Async subagents for [pi](https://github.com/badlogic/pi-mono), running in [Herdr](https://herdr.dev) panes. Spawn a sub-agent, keep working in the main session, and get the result steered back when it finishes. Fully non-blocking.
 
-**tmux-only fork.** See [Acknowledgements](#acknowledgements) for the upstream project, which also supports cmux, zellij, and WezTerm.
+**Herdr-only fork.** See [Acknowledgements](#acknowledgements) for the upstream project, which also supports tmux, cmux, zellij, and WezTerm.
+
+https://github.com/amosblomqvist/pi-interactive-subagents/assets
+
+![Demo of pi-interactive-subagents: spawning subagents in Herdr panes and steering results back into the main session](demo/demo.gif)
 
 ## How it works
 
-`subagent()` returns immediately. The sub-agent runs in its own tmux pane — a right split off the parent pi pane, so pane creation never steals keyboard focus. A live widget above the input tracks every running sub-agent, and when one finishes, its result is steered into the main session as a notification that triggers a new turn.
+`subagent()` returns immediately. The sub-agent runs in its own Herdr pane — a split off the parent pi pane that never steals keyboard focus (`--no-focus`). A live widget above the input tracks every running sub-agent, and when one finishes, its result is steered into the main session as a notification that triggers a new turn.
 
 ```
 ╭─ Subagents ──────────────────────────── 2 running ─╮
@@ -17,7 +21,7 @@ Async subagents for [pi](https://github.com/badlogic/pi-mono), running in tmux p
 
 Spawn several in parallel — they run concurrently and steer results back independently as each finishes.
 
-Panes are kept evenly sized: the extension re-applies an `even-horizontal` layout after every spawn and exit (debounced). The layout is a single constant, `SUBAGENT_TMUX_LAYOUT` in `pi-extension/subagents/tmux.ts` — change it to any named tmux layout (`main-vertical`, `tiled`, …).
+Panes are kept usable: Herdr has no window re-tiling, so each spawn splits the largest pane this extension owns (the parent pi pane plus its own subagent panes) — wide panes split right, tall/narrow panes split down. Parallel spawns converge on near-even tiling instead of collapsing into ever-narrower columns. The strategy lives in `chooseSplitTarget` in `pi-extension/subagents/herdr.ts`.
 
 If your shell startup is slow and launch commands get dropped before the prompt is ready, raise the delay:
 
@@ -29,12 +33,12 @@ export PI_SUBAGENT_SHELL_READY_DELAY_MS=2500   # default: 500
 
 | Tool | Description |
 | --- | --- |
-| `subagent` | Spawn a sub-agent in a dedicated tmux pane (async) |
+| `subagent` | Spawn a sub-agent in a dedicated Herdr pane (async) |
 | `subagent_message` | Message a sub-agent by name — steers it if running, resumes its session if finished |
 | `subagents_list` | List available agent definitions |
 | `ask_question` | *(sub-agent sessions only)* Ask the orchestrator a question and wait for the reply |
 
-There is also a `/subagent <agent> <task>` command for spawning directly.
+There is also a `/subagent <agent> <task>` command for spawning directly, plus roster inspection: `/subagent list` shows every available agent and `/subagent info <agent>` prints an agent's resolved frontmatter. Typing `/subagent ` tab-completes subcommands and agent names.
 
 ### Spawning
 
@@ -76,11 +80,15 @@ If the reply arrives while the sub-agent is still mid-turn, it is absorbed into 
 
 | Agent | Model | Tools | Role |
 | ----- | ----- | ----- | ---- |
-| **scout** | `openrouter/z-ai/glm-5.3` | `read`, `grep`, `find`, `ls` | Fast read-only codebase recon |
-| **researcher** | `openrouter/z-ai/glm-5.3` | `web_search`, `web_fetch`, `safe_bash` | Web research, synthesized into a sourced brief |
-| **worker** | `openrouter/z-ai/glm-5.3` | `read`, `write`, `edit`, `bash`, `web_search`, `web_fetch` + spawning | General implementer; may spawn `scout` and `researcher` |
+| **scout** | `omniroute-coolify/glm/glm-5.3` | `read`, `grep`, `find`, `ls` | Fast read-only codebase recon |
+| **researcher** | `omniroute-coolify/glm/glm-5.3` | `web_search`, `web_fetch`, `safe_bash` + `pinchtab` skill | Web research via the PinchTab browser, synthesized into a sourced brief |
+| **worker** | `omniroute-coolify/glm/glm-5.3` | `read`, `write`, `edit`, `bash`, `web_search`, `web_fetch` + spawning | General implementer; may spawn `scout`, `researcher`, `critic`, `planner`, `git-butler`, `scribe` |
+| **critic** | `omniroute-coolify/glm/glm-5.3` | `read`, `grep`, `find`, `ls` | Adversarial diff/code review — `BLOCK` / `HOLD` / `CLEAR` verdicts |
+| **planner** | `omniroute-coolify/glm/glm-5.3` | `read`, `grep`, `find`, `ls` | Codebase-grounded, dependency-ordered implementation plans |
+| **git-butler** | `omniroute-coolify/glm/glm-5.3` | `read`, `grep`, `find`, `safe_bash` | Git hygiene — dirty-tree forensics, commit slicing, conflict resolution |
+| **scribe** | `omniroute-coolify/glm/glm-5.3` | `read`, `grep`, `find`, `write`, `edit` | Documentation from the actual diff — READMEs, docs, changelogs |
 
-All three are autonomous (`auto-exit: true`) and carry their identity in the system prompt (`system-prompt: append`).
+All are autonomous (`auto-exit: true`) and carry their identity in the system prompt (`system-prompt: append`).
 
 ## Custom agents
 
@@ -178,10 +186,10 @@ Status display is configured via `config.json` in the extension directory (copy 
 ## Requirements
 
 - [pi](https://github.com/badlogic/pi-mono)
-- [tmux](https://github.com/tmux/tmux)
+- [Herdr](https://herdr.dev)
 
 ```bash
-tmux new -A -s pi 'pi'
+herdr   # then start pi from one of its panes
 ```
 
 ## Acknowledgements
