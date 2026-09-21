@@ -8,6 +8,34 @@ Async subagents for [pi](https://github.com/badlogic/pi-mono), running in [Herdr
   <img src="demo/demo.gif" alt="Demo of pi-interactive-subagents: spawning subagents in Herdr panes and steering results back into the main session">
 </video>
 
+## Installation
+
+**Prerequisite:** [Herdr](https://herdr.dev) — the extension runs subagents in Herdr panes, and requires `HERDR_ENV=1` (i.e. run pi inside Herdr).
+
+Install from npm via pi's package manager:
+
+```bash
+pi install npm:pi-interactive-subagents-herdr
+```
+
+Or install straight from the git repo:
+
+```bash
+pi install git:github.com/jontstaz/pi-interactive-subagents-herdr
+```
+
+Restart pi after installing. To update later:
+
+```bash
+pi update --extension npm:pi-interactive-subagents-herdr
+```
+
+To uninstall:
+
+```bash
+pi remove npm:pi-interactive-subagents-herdr
+```
+
 ## How it works
 
 `subagent()` returns immediately. The sub-agent runs in its own Herdr pane — a split off the parent pi pane that never steals keyboard focus (`--no-focus`). A live widget above the input tracks every running sub-agent, and when one finishes, its result is steered into the main session as a notification that triggers a new turn.
